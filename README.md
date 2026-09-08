@@ -355,6 +355,108 @@ O que o `src/main.py` faz, em ordem:
 
 > ⚠️ **Importante:** após finalizar os testes ou demonstrações, recomenda-se destruir os recursos criados para evitar consumo desnecessário de infraestrutura.
 
+## CONSUMO SNOWFLAKE
+
+Após executar o pipeline, é possível consultar o consumo de créditos gerado pelo WAREHOUSE
+e estimar o custo da execução.
+
+O Databricks registra o consumo na tabela `SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY`. Como o objetivo
+deste projeto é comparar o custo de processamento entre Databricks e Snowflake,
+o consumo é relacionado ao preço atual encontrado na `SNOWFLAKE.ORGANIZATION_USAGE.RATE_SHEET_DAILY`.
+
+A consulta abaixo:
+
+- identifica o consumo do Warehouse LAB_WH nas últimas 24 horas;
+- obtém o preço vigente do crédito de computação através de `RATE_SHEET_DAILY`;
+- considera a taxa efetiva do serviço `WAREHOUSE_METERING`;
+- calcula o custo da execução em USD com base nos créditos consumidos;
+
+O preço utilizado corresponde ao preço mais recente registrado para a SKU `WAREHOUSE_METERING` em `SNOWFLAKE.ORGANIZATION_USAGE`.`RATE_SHEET_DAILY`. Dessa forma, o cálculo representa quanto o consumo registrado custaria considerando o preço atual do crédito de computação do Snowflake.
+
+> **Importante:** o consumo pode levar algum tempo para aparecer no
+> `SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY`. Portanto, uma execução recém-finalizada pode não estar
+> disponível imediatamente para consulta.
+
+```sql
+WITH cte_price AS (
+SELECT
+    DATE,
+    REGION,
+    SERVICE_LEVEL,
+    RATING_TYPE,
+    SERVICE_TYPE,
+    CURRENCY,
+    EFFECTIVE_RATE
+FROM SNOWFLAKE.ORGANIZATION_USAGE.RATE_SHEET_DAILY
+WHERE DATE >= DATEADD(DAY, -30, CURRENT_DATE())
+AND RATING_TYPE = 'COMPUTE'
+AND SERVICE_TYPE = 'WAREHOUSE_METERING'
+QUALIFY ROW_NUMBER() OVER (ORDER BY DATE DESC ) = 1
+),
+cte_usage AS (
+    SELECT
+       warehouse_name,
+       start_time,
+       credits_used 
+    FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY
+    WHERE warehouse_name = 'LAB_WH'
+    GROUP BY ALL
+)
+SELECT
+    warehouse_name,
+    start_time,
+    credits_used,
+    price.EFFECTIVE_RATE,
+    credits_used * price.EFFECTIVE_RATE AS execution_cost,
+    (credits_used * price.EFFECTIVE_RATE) * 30 AS monthly_estimate
+FROM cte_usage usage
+CROSS JOIN cte_price price
+ORDER BY start_time DESC;
+
+```
+
+### BENCHMARK DE CONSUMO
+
+Para este projeto foram realizadas três execuções para avaliar o consumo do
+Snowflake em diferentes cenários:
+
+1. **Execução inicial completa:** processamento de todos os arquivos disponíveis
+   na AWS.
+2. **Primeira execução incremental:** processamento de arquivos adicionados
+   posteriormente.
+3. **Segunda execução incremental:** novo processamento considerando arquivos
+   adicionados posteriormente.
+
+Os valores de consumo obtidos foram:
+
+| Execução | Cenário | Créditos | Preço por crédito | Custo estimado | Custo mensal estimado (Custo de cada execução × 30) |
+|---|---|---:|---:|---:|---:|
+| 1 | Carga inicial completa | `0.051186387` | `US$ 4.65` | `US$ 0.23801669955` | `-` |
+| 2 | Incremental | `0.000482890` | `US$ 4.65` | `US$ 0.002245439` | `US$ 0.067363170` |
+| 3 | Incremental | `0.000965781` | `US$ 4.65` | `US$ 0.004490777` | `US$ 0.134723310` |
+| 4 | **Total** | `-` | `-` | **US$ 0.44010317955** | `-` |
+
+Considerando os valores observados nas três execuções, podemos estimar o custo
+de processamento para um período de 30 dias.
+
+Para isso, considera-se a execução inicial como um custo único e as duas
+execuções incrementais como uma aproximação do consumo diário:
+
+**Custo estimado em 30 dias = Execução inicial + (Incremental 1 + Incremental 2) × 30**
+
+```text
+Custo inicial:       US$ 0.23801669955
+Incremental 1:       US$ 0.002245439
+Incremental 2:       US$ 0.004490777
+--------------------------------
+Consumo diário no primeiro dia:      US$ 0.23801669955
+Consumo diário nos demais dias:      US$ 0.002245439
+
+Estimativa 30 dias:
+US$ 0.23801669955 + (US$ 0.002245439 + US$ 0.004490777) × 30 = US$ 0.44010317955
+```
+
+
 ## Parte 6 - Destruição da infraestrutura
 
 Ao final da execução, o script perguntará se você deseja destruir toda a infraestrutura criada.
