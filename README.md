@@ -434,7 +434,7 @@ Os valores de consumo obtidos foram:
 | 1 | Carga inicial completa | `0.051186387` | `US$ 4.65` | `US$ 0.23801669955` | `-` |
 | 2 | Incremental | `0.000482890` | `US$ 4.65` | `US$ 0.002245439` | `US$ 0.067363170` |
 | 3 | Incremental | `0.000965781` | `US$ 4.65` | `US$ 0.004490777` | `US$ 0.134723310` |
-| 4 | **Total** | `-` | `-` | **US$ 0.44010317955** | `-` |
+| 4 | **Total** | `-` | `-` | ` - ` | **US$ 0.44010317955** |
 
 Considerando os valores observados nas três execuções, podemos estimar o custo
 de processamento para um período de 30 dias.
